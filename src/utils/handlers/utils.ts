@@ -1,0 +1,248 @@
+import distance from "@turf/distance";
+import nearestPointOnLine from "@turf/nearest-point-on-line";
+import polygonToLine from "@turf/polygon-to-line";
+import type {
+  Feature as TurfFeature,
+  LineString as TurfLineString,
+  MultiLineString as TurfMultiLineString,
+} from "geojson";
+import type { MapMouseEvent, MapTouchEvent, PointLike } from "maplibre-gl";
+import { toast } from "react-hot-toast";
+import type {
+  Feature,
+  FeatureMap,
+  GeoJsonProperties,
+  Geometry,
+  IWrappedFeature,
+  MultiPoint,
+  Position,
+} from "types";
+import { type ModeWithOptions, USelection } from "@/stores";
+import type { Data, Sel } from "@/stores/jotai";
+import type { ROUTE_TYPE } from "@/stores/mode";
+import { e6position } from "@/utils/geometry";
+import { decodeId, newFeatureId } from "@/utils/id";
+import type { MomentInput } from "@/utils/persistence/moment";
+import { env } from "../env_client";
+import { type IDMap, UIDMap } from "../id_mapper";
+import { CLICKABLE_LAYERS } from "../load_and_augment_style";
+import type { IPersistence } from "../persistence/ipersistence";
+import type PMap from "../pmap";
+
+type PutFeature = MomentInput["putFeatures"][0];
+
+export function getMapCoord(
+  e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent,
+) {
+  return e6position(e.lngLat.toArray(), 7) as Pos2;
+}
+
+export function createOrUpdateFeature({
+  mode,
+  featureMap,
+  geometry,
+  selection,
+  properties = {},
+}: {
+  selection: Sel;
+  mode: ModeWithOptions;
+  featureMap: Data["featureMap"];
+  geometry: Geometry;
+  properties?: GeoJsonProperties;
+}): PutFeature {
+  const id = newFeatureId();
+  const replaceGeometryForId = mode.modeOptions?.replaceGeometryForId;
+  const wrappedFeature =
+    replaceGeometryForId && featureMap.get(replaceGeometryForId);
+
+  if (wrappedFeature) {
+    const p: PutFeature = {
+      ...wrappedFeature,
+      feature: {
+        ...wrappedFeature.feature,
+        geometry,
+      },
+    };
+
+    return p;
+  }
+
+  return {
+    id,
+    folderId: USelection.folderId(selection),
+    feature: {
+      type: "Feature",
+      properties,
+      geometry,
+    },
+  };
+}
+
+const getNeighborCandidate = (
+  point: maplibregl.Point,
+  pmap: PMap,
+  idMap: IDMap,
+  excludeFeatureId?: string,
+): string | null => {
+  const { x, y } = point;
+  const distance = 12;
+  const searchBox = [
+    [x - distance, y - distance] as PointLike,
+    [x + distance, y + distance] as PointLike,
+  ] as [PointLike, PointLike];
+
+  const pointFeatures = pmap.map.queryRenderedFeatures(searchBox, {
+    layers: CLICKABLE_LAYERS,
+  });
+
+  if (!pointFeatures.length) return null;
+
+  for (const feature of pointFeatures) {
+    const id = feature.id;
+    const decodedId = decodeId(id as RawId);
+    const uuid = UIDMap.getUUID(idMap, decodedId.featureId);
+
+    if (uuid !== excludeFeatureId) {
+      return uuid;
+    }
+  }
+
+  return null;
+};
+
+const getNearestPointFromMultiPoint = (
+  multiPoint: MultiPoint,
+  targetCoordinates: Position,
+): Position => {
+  let nearestPoint = targetCoordinates;
+  let shortestDistance = Infinity;
+
+  for (const coordinates of multiPoint.coordinates) {
+    const currentDistance = distance(targetCoordinates, coordinates);
+    if (currentDistance < shortestDistance) {
+      nearestPoint = coordinates;
+      shortestDistance = currentDistance;
+    }
+  }
+
+  return nearestPoint;
+};
+
+const calculateSnapPosition = (
+  feature: Feature,
+  cursorCoordinates: Position,
+): Position => {
+  if (!feature.geometry) return cursorCoordinates;
+
+  switch (feature.geometry.type) {
+    case "Point":
+      return feature.geometry.coordinates;
+
+    case "MultiPoint":
+      return getNearestPointFromMultiPoint(feature.geometry, cursorCoordinates);
+
+    case "LineString":
+    case "MultiLineString": {
+      const line = feature.geometry;
+      const nearestPoint = nearestPointOnLine(line, cursorCoordinates);
+      return nearestPoint.geometry.coordinates;
+    }
+
+    case "Polygon":
+    case "MultiPolygon": {
+      const polygonLine = polygonToLine(feature.geometry);
+      const nearestPoint = nearestPointOnLine(
+        polygonLine as unknown as TurfFeature<
+          TurfLineString | TurfMultiLineString
+        >,
+        cursorCoordinates,
+      );
+
+      return nearestPoint.geometry.coordinates;
+    }
+
+    default:
+      return cursorCoordinates;
+  }
+};
+
+export const getSnappingCoordinates = (
+  e: MapMouseEvent | MapTouchEvent,
+  featureMap: FeatureMap,
+  pmap: PMap,
+  idMap: IDMap,
+  excludeFeatureId?: string,
+): Position => {
+  const cursorCoordinates = getMapCoord(e);
+  const featureId = getNeighborCandidate(
+    e.point,
+    pmap,
+    idMap,
+    excludeFeatureId,
+  );
+
+  if (!featureId) return cursorCoordinates;
+
+  const wrappedFeature = featureMap.get(featureId);
+  if (!wrappedFeature) return cursorCoordinates;
+
+  const { feature } = wrappedFeature;
+
+  if (!feature.geometry) return cursorCoordinates;
+
+  return calculateSnapPosition(feature, cursorCoordinates);
+};
+
+export async function transactRoute(
+  transact: ReturnType<IPersistence["useTransact"]>,
+  wrappedFeature: IWrappedFeature,
+  routeType: ROUTE_TYPE,
+) {
+  const geometry = wrappedFeature.feature.geometry;
+  if (geometry?.type !== "GeometryCollection") return null;
+
+  const points = geometry.geometries.filter((g) => g.type === "Point");
+  const lineString = geometry.geometries.find((g) => g.type === "LineString");
+  if (!lineString || !points.length) return null;
+
+  transact({
+    note: "Added to line",
+    putFeatures: [wrappedFeature],
+  });
+
+  try {
+    const wp = points.map((p) => p.coordinates.join(",")).join(";");
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${routeType}/${wp}?alternatives=false&geometries=geojson&language=en&overview=full&steps=false&access_token=${env.MAPBOX_TOKEN}`;
+    const resp = await fetch(url);
+    const j = await resp.json();
+
+    if (!j.routes?.length) {
+      if (j.message) {
+        toast.error(j.message);
+      } else {
+        toast.error("Could not get route for an unexpected reason");
+      }
+      return;
+    }
+
+    const newLineString = j.routes[0].geometry;
+
+    transact({
+      note: "Added to line",
+      putFeatures: [
+        {
+          ...wrappedFeature,
+          feature: {
+            ...wrappedFeature.feature,
+            geometry: {
+              type: "GeometryCollection",
+              geometries: [newLineString, ...points],
+            },
+          },
+        },
+      ],
+    });
+  } catch (e) {
+    toast.error(`Could not calculate a route for an unexpected reason ${e}`);
+  }
+}

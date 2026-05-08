@@ -1,0 +1,86 @@
+import { PlusCircledIcon } from "@radix-ui/react-icons";
+import type { LngLatBoundsLike } from "maplibre-gl";
+import { type Maybe, Nothing } from "purify-ts/Maybe";
+import { useContext, useState } from "react";
+import type { BBox } from "types";
+import addedFeaturesToast from "@/components/added_features_toast";
+import { DialogHeader } from "@/components/dialog";
+import { MapContext } from "@/providers/map_context";
+import type { ModalStateImport } from "@/stores/jotai";
+import type { ConvertResult } from "@/utils/convert/utils";
+import { extendExtent, getExtent } from "@/utils/geometry";
+import { truncate } from "@/utils/utils";
+import { ImportFileGroup } from "./import/import_file_group";
+import { ImportShapefile } from "./import/import_shapefile";
+import { flattenResult } from "./import_utils";
+
+export type OnNext = (arg0: ConvertResult | null) => void;
+
+export function ImportDialog({
+  modal,
+  onClose,
+}: {
+  modal: ModalStateImport;
+  onClose: () => void;
+}) {
+  const { files } = modal;
+  const map = useContext(MapContext);
+
+  const [index, setIndex] = useState<number>(0);
+  const [extent, setExtent] = useState<Maybe<BBox>>(Nothing);
+
+  const file = files[index];
+  const progress = files.length > 1 ? `(${index}/${files.length})` : "";
+  const hasNext = index < files.length - 1;
+
+  const onNext: OnNext = (result) => {
+    let nextExtent = extent;
+    if (result) {
+      nextExtent = extendExtent(getExtent(flattenResult(result)), extent);
+    }
+    if (hasNext) {
+      setExtent(nextExtent);
+      setIndex((i) => i + 1);
+    } else {
+      nextExtent.map((importedExtent) => {
+        map?.map.fitBounds(importedExtent as LngLatBoundsLike, {
+          padding: 100,
+        });
+      });
+      if (result) {
+        addedFeaturesToast(result);
+      }
+      return onClose();
+    }
+  };
+
+  const props = {
+    hasNext: hasNext,
+    onClose: onClose,
+    onNext,
+    secondary: hasNext
+      ? {
+          action: "Skip",
+          onClick: () => {
+            props.onNext(null);
+          },
+        }
+      : undefined,
+  };
+
+  return (
+    <>
+      <DialogHeader
+        title={`Import ${truncate(
+          file.type === "file" ? file.file.name : "Shapefile",
+        )} ${progress}`}
+        titleIcon={PlusCircledIcon}
+      />
+      {file.type === "file" ? (
+        <ImportFileGroup {...props} file={file} />
+      ) : (
+        <ImportShapefile {...props} file={file} />
+      )}
+    </>
+  );
+}

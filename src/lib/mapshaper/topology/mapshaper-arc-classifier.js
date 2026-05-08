@@ -1,0 +1,51 @@
+import { absArcId } from "../paths/mapshaper-arc-utils";
+import { traversePaths } from "../paths/mapshaper-path-utils";
+import utils from "../utils/mapshaper-utils";
+
+export function getArcClassifier(shapes, arcs) {
+  var opts = arguments[2] || {},
+    useOnce = !opts.reusable,
+    n = arcs.size(),
+    a = new Int32Array(n),
+    b = new Int32Array(n);
+
+  utils.initializeArray(a, -1);
+  utils.initializeArray(b, -1);
+
+  traversePaths(shapes, function (o) {
+    var i = absArcId(o.arcId);
+    var shpId = o.shapeId;
+    var aval = a[i];
+    if (aval === -1) {
+      a[i] = shpId;
+    } else if (shpId < aval) {
+      b[i] = aval;
+      a[i] = shpId;
+    } else {
+      b[i] = shpId;
+    }
+  });
+
+  function classify(arcId, getKey) {
+    var i = absArcId(arcId);
+    var shpA = a[i];
+    var shpB = b[i];
+    var key;
+    if (shpA === -1) return null;
+    key = getKey(shpA, shpB);
+    if (key === null || key === false) return null;
+    if (useOnce) {
+      a[i] = -1;
+      b[i] = -1;
+    }
+
+    if (opts.filter && !opts.filter(shpA, shpB)) return null;
+    return key;
+  }
+
+  return function (getKey) {
+    return function (arcId) {
+      return classify(arcId, getKey);
+    };
+  };
+}

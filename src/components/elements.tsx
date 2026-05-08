@@ -1,0 +1,690 @@
+import {
+  EyeNoneIcon,
+  EyeOpenIcon,
+  QuestionMarkCircledIcon,
+  SymbolIcon,
+  TextIcon,
+  TextNoneIcon,
+} from "@radix-ui/react-icons";
+import classed from "classed-components";
+import type { ClassValue } from "clsx";
+import clsx from "clsx";
+import { Field } from "formik";
+import {
+  ContextMenu as CM,
+  DropdownMenu as DD,
+  Dialog,
+  Popover,
+  Tooltip,
+} from "radix-ui";
+import React from "react";
+import { captureException } from "@/lib/integrations/errors";
+import { SUPPORT_EMAIL } from "@/utils/constants";
+
+export function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <Tooltip.Root delayDuration={0}>
+      <Tooltip.Trigger className="dark:text-white align-middle">
+        <QuestionMarkCircledIcon />
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <TContent>
+          <div className="w-36">{children}</div>
+        </TContent>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export function AppIcon({ className }: React.HTMLAttributes<SVGElement>) {
+  const circleAttrs = {
+    r: "17.5",
+    stroke: "currentColor",
+    strokeWidth: "15",
+  } as const;
+  return (
+    <svg
+      viewBox="0 0 300 300"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
+      <circle cx="75" cy="75" {...circleAttrs} />
+      <circle cx="225" cy="225" {...circleAttrs} />
+      <circle cx="225" cy="75" {...circleAttrs} />
+      <circle cx="75" cy="225" {...circleAttrs} />
+      <line
+        x1="75"
+        y1="95"
+        x2="75"
+        y2="208"
+        stroke="currentColor"
+        strokeWidth="20"
+      />
+      <line
+        x1="226"
+        y1="95"
+        x2="226"
+        y2="208"
+        stroke="currentColor"
+        strokeWidth="20"
+      />
+      <line
+        x1="95"
+        y1="75"
+        x2="208"
+        y2="75"
+        stroke="currentColor"
+        strokeWidth="20"
+      />
+      <line
+        x1="95"
+        y1="225"
+        x2="208"
+        y2="225"
+        stroke="currentColor"
+        strokeWidth="20"
+      />
+      <rect x="110" y="110" width="80" height="80" rx="5" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function StyledDropOverlay({
+  children,
+}: React.PropsWithChildren<Record<string, unknown>>) {
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-500 pointer-events-none bg-opacity-75">
+      <div className="px-3 py-2 text-white bg-gray-500 rounded-md max-w-36">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+type ErrorData = {
+  error: Error;
+  componentStack: string | null;
+  eventId: string | null;
+  resetError(): void;
+};
+
+export function ErrorFallback(props: ErrorData) {
+  return (
+    <div className="max-w-xl p-4">
+      <TextWell size="md">
+        Sorry, an unexpected error occurred. The error’s already been
+        automatically reported.
+      </TextWell>
+      {props.resetError ? (
+        <div className="pt-2">
+          <Button onClick={() => props.resetError()}>Retry</Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type ErrorBoundaryProps = {
+  fallback: (error: ErrorData) => React.ReactNode;
+  children: React.ReactNode;
+};
+
+type ErrorBoundaryState = {
+  hasError: boolean;
+  error: ErrorData | null;
+};
+
+export class ErrorBoundary extends React.Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    captureException(
+      error,
+
+      info.componentStack,
+    );
+  }
+
+  render() {
+    if (this.state.hasError && this.state.error) {
+      return this.props.fallback(this.state.error);
+    }
+
+    return this.props.children;
+  }
+}
+
+export function DefaultErrorBoundary({
+  children,
+}: React.PropsWithChildren<unknown>) {
+  return <ErrorBoundary fallback={ErrorFallback}>{children}</ErrorBoundary>;
+}
+
+export function Loading({ size = "sm" }: { size?: B3Size }) {
+  return (
+    <div
+      className={clsx(
+        {
+          "h-32": size === "sm",
+          "h-16": size === "xs",
+        },
+        `text-gray-500 flex items-center justify-center`,
+      )}
+    >
+      <SymbolIcon className="animate-spin" />
+      <span className="ml-2">Loading…</span>
+    </div>
+  );
+}
+
+export const CapsLabel = classed.label(
+  "block uppercase font-semibold text-gray-500 dark:text-gray-500 text-xs",
+);
+
+const overlayClasses =
+  "fixed inset-0 bg-black/20 dark:bg-white/20 z-50 app-fadein";
+
+export const StyledDialogOverlay = classed(Dialog.Overlay)(overlayClasses);
+
+const styledDialogContent = ({ size = "sm" }: { size?: B3Size }) =>
+  clsx(
+    {
+      "p-4": size === "sm",
+      "p-0": size === "xs",
+    },
+    `fixed inline-block w-full
+      max-h-screen
+      text-left
+      align-bottom
+      bg-gray-50 dark:bg-gray-900
+      dark:text-white
+      shadow-xl dark:shadow-none
+      sm:rounded-3xl sm:align-middle sm:max-w-lg
+      left-2/4 top-2/4 -translate-x-1/2 -translate-y-1/2
+      overflow-y-auto app-scrollbar
+      z-50
+      `,
+  );
+
+export const StyledDialogContent = classed(Dialog.Content)(styledDialogContent);
+
+export const styledCheckbox = ({
+  variant = "default",
+}: {
+  variant: B3Variant;
+}) =>
+  clsx([
+    sharedOutline("primary"),
+    {
+      "text-purple-500 focus:ring-purple-500": variant === "primary",
+      "text-gray-500 border-gray-500 hover:border-gray-700 dark:hover:border-gray-300 focus:ring-gray-500":
+        variant === "default",
+    },
+    `bg-transparent rounded-lg dark:ring-offset-gray-700`,
+  ]);
+
+export const FieldCheckbox = classed(Field)(styledCheckbox);
+
+export const TContent = classed(Tooltip.Content)(
+  ({ size = "sm" }: { size?: B3Size }) => [
+    {
+      "max-w-md": size === "sm",
+      "w-64": size === "md",
+    },
+    `px-3 py-1.5 rounded-lg
+  z-50
+  text-sm
+  border
+  shadow-md
+  text-gray-700          dark:text-white
+  bg-gray-50             dark:bg-gray-800
+  border-gray-200        dark:border-gray-700
+  `,
+  ],
+);
+
+export function styledPropertyInput(
+  side: "left" | "right" | "table",
+  missing = false,
+) {
+  return clsx(
+    {
+      "pl-3": side === "left",
+      "pl-2": side === "right",
+      "px-2": side === "table",
+    },
+    missing
+      ? "text-gray-700 dark:text-gray-100 opacity-70"
+      : "text-gray-700 dark:text-gray-100",
+    `bg-transparent block tabular-nums text-xs border-none pr-1 py-2
+    w-full
+    focus-visible:ring-inset
+    focus-visible:bg-purple-300/10 dark:focus-visible:bg-purple-700/40
+    dark:focus-visible:ring-purple-700 focus-visible:ring-purple-500`,
+  );
+}
+
+export const styledTd = "border-gray-200 dark:border-gray-600";
+
+const arrowLike = "text-white dark:text-gray-900 fill-current";
+
+const ArrowSVG = (
+  <svg>
+    <polygon points="0,0 30,0 15,10" />
+    <path
+      d="M 0 0 L 15 10 L 30 0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      className="text-gray-200 dark:text-gray-600"
+    />
+  </svg>
+);
+
+export const StyledPopoverArrow = () => (
+  <Popover.Arrow offset={5} width={11} height={5} className={arrowLike} asChild>
+    {ArrowSVG}
+  </Popover.Arrow>
+);
+
+export const StyledTooltipArrow = () => (
+  <Tooltip.Arrow offset={5} width={11} height={5} className={arrowLike} asChild>
+    {ArrowSVG}
+  </Tooltip.Arrow>
+);
+
+export const StyledPopoverContent = classed(Popover.Content)(
+  ({
+    size = "sm",
+    flush = "no",
+  }: {
+    size?: B3Size | "no-width";
+    flush?: "yes" | "no";
+  }) =>
+    clsx(
+      {
+        "w-32": size === "xs",
+        "w-64": size === "sm",
+        "w-96": size === "md",
+        "w-[36em]": size === "lg",
+      },
+      flush === "yes" ? "" : "p-3",
+      `shadow-2xl
+      app-appear
+      z-50
+      bg-gray-50 dark:bg-gray-900
+      dark:text-white
+      border border-gray-200 dark:border-gray-800 rounded-2xl`,
+    ),
+);
+
+export function PopoverContent2({
+  children,
+  ...props
+}: React.ComponentProps<typeof StyledPopoverContent>) {
+  return (
+    <Popover.Portal>
+      <StyledPopoverContent {...props}>
+        <StyledPopoverArrow />
+        {children}
+      </StyledPopoverContent>
+    </Popover.Portal>
+  );
+}
+
+export const styledTextarea =
+  "block w-full mt-1 text-sm font-mono border-gray-300 dark:bg-transparent dark:text-white rounded-xs focus-visible:border-gray-300 overflow-auto focus:ring-purple-500";
+
+export const StyledFieldTextareaCode = classed(Field)(styledTextarea);
+
+export const StyledLabelSpan = classed.span(
+  ({ size = "sm" }: { size?: B3Size }) =>
+    clsx(
+      {
+        "text-sm": size === "sm",
+        "text-xs": size === "xs",
+      },
+      "text-gray-700 dark:text-gray-300 select-none",
+    ),
+);
+
+export const contentLike = `py-2
+    bg-gray-50 dark:bg-gray-900
+    rounded-xl
+    shadow-lg
+    ring-1 ring-gray-200 dark:ring-gray-800
+    content-layout z-50`;
+
+export const DDContent = classed(DD.Content)(contentLike);
+export const DDSubContent = classed(DD.SubContent)(contentLike);
+export const CMContent = classed(CM.Content)(contentLike);
+export const CMSubContent = classed(CM.SubContent)(contentLike);
+
+const styledLabel =
+  "block py-1 pl-3 pr-4 text-xs text-gray-500 dark:text-gray-300";
+
+export const DivLabel = classed.div(styledLabel);
+export const DDLabel = classed(DD.Label)(styledLabel);
+
+const styledSeparator = "border-t border-gray-100 dark:border-gray-700 my-1";
+
+export const DivSeparator = classed.div(styledSeparator);
+export const DDSeparator = classed(DD.Separator)(styledSeparator);
+
+export const styledInlineA =
+  "text-purple-700 underline hover:text-black dark:text-purple-500 dark:hover:text-purple-300";
+
+export const menuItemLike = ({
+  variant = "default",
+}: {
+  variant?: B3Variant;
+}) =>
+  clsx([
+    {
+      "text-black dark:text-gray-300": variant === "default",
+      "text-red-500 dark:text-red-300": variant === "destructive",
+    },
+    `cursor-pointer
+    hover:bg-gray-200 dark:hover:bg-gray-700
+    focus-visible:bg-gray-100 dark:focus-visible:bg-gray-700
+    flex items-center
+    w-full
+    py-1 pl-3 pr-3
+    text-sm gap-x-2`,
+  ]);
+
+export const StyledItem = classed(DD.Item)(menuItemLike);
+export const DDSubTriggerItem = classed(DD.SubTrigger)(menuItemLike);
+export const CMSubTriggerItem = classed(CM.SubTrigger)(
+  `${menuItemLike({ variant: "default" })} justify-between`,
+);
+export const CMItem = classed(CM.Item)(menuItemLike);
+
+export const PopoverTitleAndClose = ({ title }: { title: string }) => (
+  <div className="flex items-start justify-between pb-2">
+    <StyledLabelSpan>{title}</StyledLabelSpan>
+  </div>
+);
+
+export type B3Size = "xxs" | "xs" | "sm" | "md" | "lg";
+export type B3Variant =
+  | "default"
+  | "primary"
+  | "quiet"
+  | "code"
+  | "quiet/mode"
+  | "destructive";
+type B3Side = "default" | "left" | "right" | "middle";
+
+export const sharedPadding = (
+  size: B3Size,
+  side: B3Side = "default",
+): ClassValue => ({
+  "p-0.5 text-xs rounded-full": size === "xxs",
+  "py-1 px-3 text-xs rounded-full": size === "xs",
+  "py-2 px-4 text-sm rounded-full": size === "sm",
+  "py-2.5 px-6 text-md rounded-full": size === "md",
+  "rounded-l-none": side === "right",
+  "rounded-r-none": side === "left",
+  "rounded-none": side === "middle",
+});
+
+export const styledRadio = clsx(
+  "text-purple-500 dark:bg-transparent dark:checked:bg-purple-500 focus:ring-purple-500",
+  sharedOutline("primary"),
+);
+
+export function sharedOutline(
+  variant: B3Variant,
+  disabled = false,
+): ClassValue {
+  return [
+    `
+    outline-hidden
+
+  `,
+    disabled
+      ? ""
+      : `focus-visible:ring-1
+    focus-visible:ring-offset-1
+    focus-visible:ring-purple-500
+    dark:focus-visible:ring-purple-500
+    dark:focus-visible:ring-offset-gray-900`,
+
+    {
+      "border border-purple-500": variant === "primary",
+      [`border
+    border-gray-300               dark:border-gray-600
+  `]: variant === "default",
+
+      [`
+    focus-visible:border-purple-500   dark:focus-visible:border-purple-300
+    hover:border-purple-400   dark:hover:border-purple-400
+    `]: variant === "default" && !disabled,
+
+      [`border
+    border-red-300               dark:border-red-600
+  `]: variant === "destructive",
+    },
+  ];
+}
+
+const sharedBackground = (variant: B3Variant, disabled = false): ClassValue => {
+  switch (variant) {
+    case "primary":
+    case "code":
+      return [
+        `bg-purple-500`,
+        !disabled &&
+          `hover:bg-purple-600 dark:hover:bg-purple-400 hover:shadow-md`,
+      ];
+    case "default":
+      return (
+        !disabled &&
+        `bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700`
+      );
+    case "quiet":
+      return !disabled && `hover:bg-purple-100/50 dark:hover:bg-purple-900/20`;
+    case "quiet/mode":
+      return !disabled && `hover:bg-purple-100/50 dark:hover:bg-purple-900/20`;
+    case "destructive":
+      return !disabled && `hover:bg-red-500/10 dark:hover:bg-red-500/20`;
+  }
+};
+
+const sharedText = (variant: B3Variant): ClassValue => {
+  switch (variant) {
+    case "quiet":
+    case "code":
+    case "quiet/mode":
+    case "default": {
+      return "font-medium text-gray-700 dark:text-white";
+    }
+    case "primary": {
+      return "font-medium text-white";
+    }
+    case "destructive": {
+      return "font-medium text-red-500 dark:text-red-300";
+    }
+  }
+};
+
+export const styledButton = ({
+  size = "sm",
+  variant = "default",
+  disabled = false,
+  side = "default",
+}: {
+  size?: B3Size | "full-width";
+  variant?: B3Variant;
+  disabled?: boolean;
+  side?: B3Side;
+}) =>
+  clsx(
+    variant === "quiet/mode"
+      ? `aria-expanded:bg-purple-200 aria-expanded:text-purple-900
+      dark:aria-expanded:bg-purple-800 dark:aria-expanded:text-purple-100
+    data-state-on:bg-purple-200 dark:data-state-on:bg-purple-800
+    data-state-on:text-purple-900 dark:data-state-on:text-purple-100`
+      : variant === "primary"
+        ? `aria-expanded:bg-purple-700
+    data-state-on:bg-purple-700`
+        : `
+    aria-expanded:bg-gray-300 dark:aria-expanded:bg-gray-700
+    data-state-on:bg-gray-300 dark:data-state-on:bg-gray-700`,
+    "disabled:opacity-50 disabled:cursor-not-allowed",
+    "transition-all duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
+
+    `focus-visible:outline-hidden`,
+
+    sharedPadding(size === "full-width" ? "md" : size, side),
+
+    `inline-flex items-center gap-x-1`,
+
+    sharedText(variant),
+
+    sharedOutline(variant, disabled),
+    sharedBackground(variant, disabled),
+    size === "full-width" && "flex-auto justify-center",
+
+    {},
+  );
+
+export const styledPanelTitle = ({
+  interactive = false,
+}: {
+  interactive?: boolean;
+}) =>
+  clsx(
+    `text-sm
+  w-full
+  text-gray-700 dark:text-gray-300
+  flex justify-between items-center`,
+    "px-3 py-3",
+    interactive && `hover:text-gray-900 dark:hover:text-white`,
+  );
+
+export const Button = classed.button(styledButton);
+
+export const styledSelect = ({
+  size,
+  variant = "default",
+}: {
+  size: B3Size;
+  variant?: B3Variant;
+}) =>
+  clsx([
+    sharedPadding(size),
+    sharedOutline(variant),
+    sharedText("default"),
+    `
+    pr-8
+    bg-transparent
+
+    focus-visible:bg-white
+    active:bg-white
+
+    dark:focus-visible:bg-black
+    dark:active:bg-black
+    `,
+  ]);
+
+export const inputClass = ({
+  _size = "sm",
+  variant = "default",
+}: {
+  _size?: B3Size;
+  variant?: B3Variant;
+}) =>
+  clsx([
+    sharedPadding(_size),
+    sharedOutline("default"),
+    {
+      "font-mono": variant === "code",
+    },
+    `block w-full
+    dark:bg-transparent dark:text-gray-100`,
+  ]);
+
+export const Keycap = classed.div(({ size = "sm" }: { size?: B3Size }) => [
+  {
+    "text-sm px-2": size === "sm",
+    "text-xs px-1": size === "xs",
+  },
+  `text-center
+  dark:bg-gray-700/50
+  font-mono rounded
+  ring-1 ring-gray-100 dark:ring-black
+  border border-b-4 border-r-2
+  border-gray-300 dark:border-gray-500`,
+]);
+
+export const Input = classed.input(inputClass);
+export const StyledField = classed(Field)(inputClass);
+
+export const TextWell = classed.div(
+  ({
+    size = "sm",
+    variant = "default",
+  }: {
+    size?: B3Size;
+    variant?: B3Variant;
+  }) =>
+    clsx({
+      "text-sm": size === "sm",
+      "py-2 px-3":
+        (variant === "destructive" || variant === "primary") && size === "sm",
+      "py-1 px-2":
+        (variant === "destructive" || variant === "primary") && size === "xs",
+      "text-xs": size === "xs",
+      "text-gray-700 dark:text-gray-300": variant === "default",
+      "text-red-700 dark:text-red-100 bg-red-50 dark:bg-red-900 rounded-sm":
+        variant === "destructive",
+      "bg-gray-50 border border-gray-200 dark:bg-gray-900 dark:border-gray-700 rounded-sm":
+        variant === "primary",
+    }),
+);
+
+export const StyledPopoverTrigger = classed(Popover.Trigger)(
+  clsx(
+    `aria-expanded:bg-gray-200 dark:aria-expanded:bg-gray-900
+    data-state-on:bg-gray-200 dark:data-state-on:bg-gray-600`,
+    "disabled:opacity-50 disabled:cursor-not-allowed",
+
+    `focus-visible:outline-hidden`,
+
+    `py-1 px-1 rounded-sm text-sm`,
+
+    `relative w-full flex items-center gap-x-1`,
+
+    sharedText("default"),
+
+    sharedOutline("default", false),
+    sharedBackground("default", false),
+
+    {},
+  ),
+);
+
+export const VisibilityToggleIcon = ({
+  visibility,
+}: {
+  visibility: boolean;
+}) => {
+  return visibility ? <EyeOpenIcon /> : <EyeNoneIcon />;
+};
+
+export const LabelToggleIcon = ({ visibility }: { visibility: boolean }) => {
+  return visibility ? <TextIcon /> : <TextNoneIcon />;
+};

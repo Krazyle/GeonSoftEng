@@ -1,0 +1,80 @@
+import { EitherAsync } from "purify-ts/EitherAsync";
+import type { FeatureCollection, FeatureMap, FolderMap } from "types";
+import { flattenResult } from "@/features/dialogs/components/import_utils";
+import { solveRootItems } from "@/features/panels/components/feature_editor/feature_editor_folder/math";
+import { KML } from "@/utils/convert/kml";
+import { AppError, ConvertError } from "@/utils/errors";
+import readAsText from "@/utils/read_as_text";
+import type { ExportOptions, ExportResult, FileType, ImportOptions } from ".";
+import { unzip } from "./local/shared";
+import { type ConvertResult, getExtension } from "./utils";
+
+class CKMZ implements FileType {
+  id = "kmz" as const;
+  label = "KMZ";
+  extensions = [".kmz"];
+  filenames = [] as string[];
+  mimes = [] as string[];
+  forwardBinary(file: ArrayBuffer, _options: ImportOptions) {
+    return EitherAsync<AppError, ConvertResult>(async function forwardKmz({
+      throwE,
+      liftEither,
+    }) {
+      const unzipped = await unzip(file);
+      const kmlFile = Object.entries(unzipped).find(([filename]) => {
+        return getExtension(filename) === ".kml";
+      });
+      if (!kmlFile) {
+        return throwE(new AppError("No KML file found within KMZ"));
+      }
+      const text = await liftEither(
+        await readAsText(kmlFile[1] as unknown as ArrayBuffer),
+      );
+      return liftEither(await KML.forwardString(text));
+    });
+  }
+  back(
+    {
+      geojson: _ignore,
+      featureMap,
+      folderMap,
+    }: {
+      geojson: FeatureCollection;
+      featureMap: FeatureMap;
+      folderMap: FolderMap;
+    },
+    _options: ExportOptions,
+  ) {
+    return EitherAsync<ConvertError, ExportResult>(async ({ throwE }) => {
+      const tokml = await import("tokml").then((m) => m.default || m);
+      try {
+        const root = solveRootItems(featureMap, folderMap);
+        const fflate = await import("fflate");
+        const fc = flattenResult({ type: "root", root, notes: [] });
+        const str = tokml(fc);
+        const encoded = new TextEncoder().encode(str);
+        const zipResult = await new Promise<Uint8Array>((resolve, reject) => {
+          fflate.zip(
+            {
+              "doc.kml": encoded,
+            },
+            (err, res) => {
+              if (err) return reject(err);
+              resolve(res);
+            },
+          );
+        });
+        return {
+          blob: new Blob([zipResult as Uint8Array<ArrayBuffer>], {
+            type: "application/octet-stream",
+          }),
+          name: "features.kmz",
+        };
+      } catch (_e) {
+        return throwE(new ConvertError("Could not convert to KMZ"));
+      }
+    });
+  }
+}
+
+export const KMZ = new CKMZ();

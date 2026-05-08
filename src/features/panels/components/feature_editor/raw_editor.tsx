@@ -1,0 +1,35 @@
+import clsx from "clsx";
+import { useSetAtom } from "jotai";
+import type { IWrappedFeature } from "types";
+import { Button, sharedOutline, TextWell } from "@/components/elements";
+import { PanelDetailsCollapsible } from "@/components/panel_details";
+import { FeatureText } from "@/features/panels/components/feature_editor/raw_editor_text";
+import { dialogAtom, panelRawOpen } from "@/stores/jotai";
+
+export function RawEditor({ feature }: { feature: IWrappedFeature }) {
+  const setDialogState = useSetAtom(dialogAtom);
+  return (
+    <PanelDetailsCollapsible title="GeoJSON" atom={panelRawOpen}>
+      <div className={`${clsx(sharedOutline("default"))} rounded-xs`}>
+        <FeatureText feature={feature} />
+      </div>
+      <div className="pt-2">
+        <TextWell size="xs">
+          This editor edits this feature. You can copy & paste new GeoJSON
+          features or feature collections under Menu →{" "}
+          <Button
+            onClick={() => {
+              setDialogState({
+                type: "load_text",
+              });
+            }}
+            size="xs"
+          >
+            Paste text
+          </Button>
+          .
+        </TextWell>
+      </div>
+    </PanelDetailsCollapsible>
+  );
+}

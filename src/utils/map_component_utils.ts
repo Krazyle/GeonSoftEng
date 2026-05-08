@@ -1,0 +1,163 @@
+import sortBy from "lodash/sortBy";
+import type maplibregl from "maplibre-gl";
+import type {
+  FeatureMap,
+  FolderMap,
+  GeometryCollection,
+  IWrappedFeature,
+  LineString,
+  Polygon,
+} from "types";
+import type { EphemeralEditingStateLasso } from "@/stores/jotai";
+import { DECK_SYNTHETIC_ID } from "@/utils/constants";
+import { bufferPoint } from "@/utils/geometry";
+import { decodeId } from "@/utils/id";
+import { CLICKABLE_LAYERS } from "@/utils/load_and_augment_style";
+import type PMap from "@/utils/pmap";
+import { isFeatureLocked } from "./folder";
+import { getMapCoord } from "./handlers/utils";
+import { type IDMap, UIDMap } from "./id_mapper";
+
+type MouseOrTouchEvent = maplibregl.MapMouseEvent | maplibregl.MapTouchEvent;
+
+export function wrappedFeaturesFromMapFeatures(
+  clickedFeatures: maplibregl.MapGeoJSONFeature[],
+  featureMap: FeatureMap,
+  idMap: IDMap,
+) {
+  const set = new Set<IWrappedFeature>();
+  const ids: { id: Id; wrappedFeature: IWrappedFeature }[] = [];
+  for (const feature of clickedFeatures) {
+    const uuid = UIDMap.getUUID(idMap, feature.id as RawId);
+    const f = featureMap.get(uuid);
+    if (f) {
+      set.add(f);
+      ids.push({ id: decodeId(feature.id as RawId), wrappedFeature: f });
+    }
+  }
+  return {
+    ids,
+    features: sortBy(Array.from(set), "at"),
+  };
+}
+
+export function newRouteFromClickEvent(
+  e: MouseOrTouchEvent,
+): GeometryCollection {
+  const pos = getMapCoord(e);
+  return {
+    type: "GeometryCollection",
+    geometries: [
+      {
+        type: "Point",
+        coordinates: pos,
+      },
+      {
+        type: "LineString",
+        coordinates: [pos, pos],
+      },
+    ],
+  };
+}
+
+export function newLineStringFromClickEvent(e: MouseOrTouchEvent): LineString {
+  const pos = getMapCoord(e);
+  return {
+    type: "LineString",
+    coordinates: [pos, pos],
+  };
+}
+
+export function newPolygonFromClickEvent(e: MouseOrTouchEvent): Polygon {
+  const pos = getMapCoord(e);
+  return {
+    type: "Polygon",
+    coordinates: [[pos, pos, pos]],
+  };
+}
+
+export function isLassoTiny(
+  ephemeralState: EphemeralEditingStateLasso,
+  map: maplibregl.Map,
+) {
+  const tl = map.project(ephemeralState.box[0]);
+  const br = map.project(ephemeralState.box[1]);
+  const pxArea = Math.abs(tl.x - br.x) * Math.abs(tl.y - br.y);
+  return pxArea < 5;
+}
+
+export function fuzzyClick(
+  e: MouseOrTouchEvent,
+  {
+    idMap,
+    featureMap,
+    folderMap,
+    pmap,
+  }: {
+    idMap: IDMap;
+    featureMap: FeatureMap;
+    folderMap: FolderMap;
+    pmap: PMap;
+  },
+) {
+  const map = e.target;
+
+  const ids: RawId[] = [];
+
+  const pickInfo = pmap.overlay.pickObject({
+    ...e.point,
+    layerIds: [DECK_SYNTHETIC_ID],
+  });
+
+  if (pickInfo) {
+    ids.push(pickInfo.object.id as RawId);
+  } else {
+    const multiPickInfo = pmap.overlay.pickMultipleObjects({
+      ...e.point,
+      radius: 10,
+      layerIds: [DECK_SYNTHETIC_ID],
+    });
+
+    if (multiPickInfo) {
+      for (const info of multiPickInfo) {
+        ids.push(info.object.id as RawId);
+      }
+    }
+  }
+
+  let mapFeatures = map.queryRenderedFeatures(e.point, {
+    layers: CLICKABLE_LAYERS,
+    filter: ["!has", "lasso"],
+  });
+  if (!mapFeatures.length) {
+    mapFeatures = map.queryRenderedFeatures(bufferPoint(e.point), {
+      layers: CLICKABLE_LAYERS,
+      filter: ["!has", "lasso"],
+    });
+  }
+
+  for (const feature of mapFeatures) {
+    ids.push(feature.id as RawId);
+  }
+
+  const results: Array<{
+    wrappedFeature: IWrappedFeature;
+    decodedId: Id;
+    id: RawId;
+  }> = [];
+
+  for (const id of ids) {
+    const decodedId = decodeId(id);
+    const uuid = UIDMap.getUUID(idMap, decodedId.featureId);
+    const wrappedFeature = featureMap.get(uuid);
+    if (wrappedFeature && !isFeatureLocked(wrappedFeature, folderMap)) {
+      results.push({ wrappedFeature, decodedId, id });
+    }
+  }
+
+  results.sort((a, b) => {
+    return a.wrappedFeature.at > b.wrappedFeature.at ? -1 : 1;
+  });
+
+  return results[0] || null;
+}

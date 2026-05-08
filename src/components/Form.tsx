@@ -1,0 +1,98 @@
+import type { FormikErrors, FormikHelpers, FormikProps } from "formik";
+import { Formik } from "formik";
+import type { PropsWithoutRef, ReactNode } from "react";
+import { useState } from "react";
+import { z } from "zod";
+import { InlineError } from "@/components/inline_error";
+import SimpleDialogActions from "@/features/dialogs/components/simple_dialog_actions";
+
+interface FormProps<S extends z.ZodType<any, any>>
+  extends Omit<
+    PropsWithoutRef<React.JSX.IntrinsicElements["form"]>,
+    "onSubmit"
+  > {
+  children?: ReactNode;
+  submitText?: string;
+  schema?: S;
+  fullWidthSubmit?: boolean;
+  mini?: boolean;
+  onCancel?: () => void;
+  track?: string;
+  onSubmit: (
+    values: z.infer<S>,
+    helpers: FormikHelpers<z.infer<S>>,
+  ) => Promise<undefined | OnSubmitResult>;
+  initialValues?: FormikProps<z.infer<S>>["initialValues"];
+}
+
+interface OnSubmitResult {
+  FORM_ERROR?: string;
+  [prop: string]: any;
+}
+
+export const FORM_ERROR = "FORM_ERROR";
+
+export function Form<S extends z.ZodType<any, any>>({
+  children,
+  submitText,
+  schema,
+  mini,
+  initialValues,
+  onCancel,
+  onSubmit,
+  fullWidthSubmit = false,
+  track,
+  ...props
+}: FormProps<S>) {
+  const [formError, setFormError] = useState<string | null>(null);
+  return (
+    <Formik
+      initialValues={initialValues || ({} as z.infer<S>)}
+      validate={(values) => {
+        if (!schema) return;
+        const res = schema.safeParse(values);
+        if (res.success === false) {
+          return z.flattenError(res.error).fieldErrors;
+        }
+      }}
+      validateOnChange={false}
+      validateOnBlur={false}
+      onSubmit={async (values, helpers) => {
+        const { setErrors } = helpers;
+        const { FORM_ERROR, ...otherErrors } =
+          (await onSubmit(values, helpers)) || ({} as OnSubmitResult);
+
+        if (FORM_ERROR) {
+          setFormError(FORM_ERROR);
+        } else {
+          setFormError(null);
+        }
+
+        if (Object.keys(otherErrors).length > 0) {
+          setErrors(otherErrors as FormikErrors<z.infer<S>>);
+        }
+      }}
+    >
+      {({ handleSubmit }) => (
+        <form
+          onSubmit={handleSubmit}
+          className="form"
+          autoComplete="off"
+          {...props}
+        >
+          <div className="space-y-2">{children}</div>
+
+          {formError && <InlineError>{formError}</InlineError>}
+
+          {submitText && (
+            <SimpleDialogActions
+              onClose={onCancel}
+              action={submitText}
+              fullWidthSubmit={!!fullWidthSubmit}
+            />
+          )}
+        </form>
+      )}
+    </Formik>
+  );
+}
